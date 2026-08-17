@@ -4,6 +4,20 @@
 每个插件的 `version` 独立演进;发布时打 `v<version>` 格式的 git tag
 (如 `v1.0.0`),tag 命名 = 仓库根所有插件共用一个版本号(当前)。
 
+
+## [0.2.0] - 2026-08-17
+
+### Changed
+- **dsh-image-text-fallback**: 重大更新
+  - 移除 Python 依赖,使用 TS OCR 引擎(onnxruntime-node)
+  - 自动检测 DSH 已配置的模型(provider)
+  - 未配置时提示用户配置
+  - 模型文件自动下载到 `~/.dsh/models/ocr/`
+  - 版本: 0.1.2 → 0.2.0
+
+### Removed
+- **dsh-ocr-tool**: 已删除(功能集成到 dsh-image-text-fallback)
+
 ## [0.1.0] - 2026-08-17
 
 ### Added
