@@ -22,13 +22,13 @@ dsh-harness/
 
 插件通过 pnpm 的 `link:` 协议安装到 DSH profile
 (`~/.dsh/profiles/<name>/package.json` 的 `dependencies` 中声明
-`"<pkg>": "link:/Users/lanws/workspace/dsh-harness/plugins/<pkg>"`),
+`"<pkg>": "link:/path/to/dsh-harness/plugins/<pkg>"`),
 由 pnpm 建立符号链接——**单一权威源码,修改即时生效**,
 不再需要手工拷贝副本。
 
 ## 环境
 
-- 本地 web 版 profile: `~/.dsh/profiles/web`
+- 本地 profile: `~/.dsh/profiles/<name>`
 - Oh-DSH Desktop: `~/Library/Application Support/Oh-DSH-Desktop/dsh/profiles/desktop`
 
 改插件后需重启对应环境生效。

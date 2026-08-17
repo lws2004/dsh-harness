@@ -23,18 +23,18 @@ done
 
 echo "== web profile (pnpm link:) =="
 for p in "${PLUGINS[@]}"; do
-  check "web: $p 已声明" grep -q "\"$p\"" /Users/lanws/.dsh/profiles/web/package.json
+  check "web: $p 已声明" grep -q "\"$p\"" $HOME/.dsh/profiles/web/package.json
   check "web: $p 链接可达" test -e "/Users/lanws/.dsh/profiles/node_modules/$p"
 done
 
 echo "== desktop profile (pnpm link:) =="
 for p in "${PLUGINS[@]}"; do
-  check "desktop: $p 已声明" grep -q "\"$p\"" "/Users/lanws/Library/Application Support/Oh-DSH-Desktop/dsh/profiles/desktop/package.json"
+  check "desktop: $p 已声明" grep -q "\"$p\"" ""$HOME/Library/Application Support/Oh-DSH-Desktop/dsh/profiles/desktop/package.json""
   check "desktop: $p 链接可达" test -e "/Users/lanws/Library/Application Support/Oh-DSH-Desktop/dsh/profiles/node_modules/$p"
 done
 
 echo "== 运行解析(web profile) =="
-cd /Users/lanws/.dsh/profiles/web
+cd "$HOME/.dsh/profiles/web"
 for p in "${PLUGINS[@]}"; do
   check "web: import $p" node --input-type=module -e "import('$p').then(()=>process.exit(0)).catch(()=>process.exit(1))"
 done

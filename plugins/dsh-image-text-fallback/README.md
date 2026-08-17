@@ -45,8 +45,8 @@ peerDependencies 提供 `@deepseek-ai/cordis`)。
 | 字段 | 默认 | 说明 |
 |---|---|---|
 | `enabled` | `true` | 是否启用 |
-| `ocrScript` | `/Users/lanws/.ocr-tool/ocr.py` | ocr.py 脚本路径 |
-| `venvPython` | `/Users/lanws/.ocr-tool/venv/bin/python` | ocr.py 依赖的 venv Python |
+| `ocrScript` | `~/.ocr-tool/ocr.py` | ocr.py 脚本路径 |
+| `venvPython` | `~/.ocr-tool/venv/bin/python` | ocr.py 依赖的 venv Python |
 | `timeoutMs` | `120000` | 单次 OCR 超时 |
 | `maxConcurrent` | `2` | 最大并发 OCR 数(1–8) |
 | `cacheCap` | `200` | 内容哈希缓存上限(1–1000) |

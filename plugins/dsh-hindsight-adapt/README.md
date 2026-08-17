@@ -32,7 +32,7 @@ hs-memory 承担,本插件不重复实现。
 
 ## 相关文件
 
-- `~/workspace/dsh-harness/plugins/dsh-hindsight-adapt/plugin.mjs` — 本插件权威源码(统一仓库管理;`~/.hindsight/dsh-hindsight-adapt` 为符号链接指向此处)
+- `<repo-root>/plugins/dsh-hindsight-adapt/plugin.mjs` — 本插件权威源码(统一仓库管理;`~/.hindsight/dsh-hindsight-adapt` 为符号链接指向此处)
 - `~/.dsh/cordis.patch.yml` — `hindsight-adapt` 条目(独立标记区块)
 - `~/.hindsight/coding-agent.json` — `harnesses.dsh.disabled: true`
 
