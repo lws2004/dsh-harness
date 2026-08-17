@@ -64,3 +64,65 @@ dsh-harness/
 - **层顺序**: bundles(按顺序) → profile cordis.patch.yml → home cordis.patch.yml → `--patch` overlays。
 - **版本语义**: `0.x.y` 表示未稳定 API, `1.0.0` 标记稳定发布。
 
+## 使用方式
+
+### 方式 1: 从 Git 安装(推荐)
+
+```bash
+dsh plugin --profile <name> add github:lanws/dsh-harness/plugins/<plugin-name>
+```
+
+示例:
+
+```bash
+dsh plugin --profile web add github:lanws/dsh-harness/plugins/dsh-image-text-fallback
+dsh plugin --profile web add github:lanws/dsh-harness/plugins/dsh-language-zh
+dsh plugin --profile web add github:lanws/dsh-harness/plugins/dsh-agent-policy
+```
+
+### 方式 2: 本地安装
+
+```bash
+# 1. 克隆仓库
+git clone https://github.com/lanws/dsh-harness.git
+cd dsh-harness
+
+# 2. 安装到 profile
+dsh plugin --profile web add ./plugins/dsh-image-text-fallback
+dsh plugin --profile web add ./plugins/dsh-language-zh
+dsh plugin --profile web add ./plugins/dsh-agent-policy
+```
+
+### 方式 3: npm 发布
+
+```bash
+# 打包
+cd plugins/dsh-image-text-fallback && npm pack
+
+# 发布到 npm(需先 npm login)
+pnpm publish --filter dsh-image-text-fallback
+
+# 用户安装
+dsh plugin --profile web add dsh-image-text-fallback
+```
+
+### 方式 4: tarball 分发
+
+```bash
+# 打包
+cd plugins/dsh-image-text-fallback && npm pack
+# 生成 dsh-image-text-fallback-0.1.0.tgz
+
+# 用户安装
+dsh plugin --profile web add ./dsh-image-text-fallback-0.1.0.tgz
+```
+
+### 验证安装
+
+```bash
+# 验证 profile 配置
+dsh --profile web --dump-config
+
+# 运行校验脚本
+bash scripts/verify-install.sh
+```

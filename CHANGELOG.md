@@ -19,3 +19,5 @@
 - 其余 4 个插件(`dsh-language-zh` / `dsh-agent-policy` / `dsh-hindsight-adapt` /
   `dsh-qwen-gw`)源码已入仓;全部插件统一 `v0.1.0` 起始(0.x 语义版本,未稳定 API 前不升 1.0)。
 - 新增 README「官方规范参考」章节:核心文档链接 + Bundle/Profile 约定速查。
+
+- README 新增「使用方式」章节: Git 安装 / 本地安装 / npm 发布 / tarball 分发。
