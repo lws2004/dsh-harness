@@ -2,7 +2,6 @@
   "name": "dsh-language-zh",
   "description": "全局语言指令:为所有会话的 system prompt 注入「始终用中文思考和回复」的独立 section,不受 preset persona 遮蔽",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
   "main": "lib/index.js",
   "exports": {
