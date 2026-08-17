@@ -11,7 +11,7 @@ dsh-harness/
 │   ├── dsh-image-text-fallback/   # 图片自动降级(OCR 转文本)
 │   ├── dsh-language-zh/           # 全局中文语言指令
 │   ├── dsh-agent-policy/          # 全局 Agent 行为策略
-│   ├── dsh-adapt/                 # Hindsight 薄适配层(file 插件)
+│   ├── dsh-hindsight-adapt/       # Hindsight 薄适配层(file 插件)
 │   └── dsh-qwen-gw/               # 阿里云 Token Plan 网关(file 插件)
 └── scripts/                       # verify-install.sh:安装完整性校验
 ```
@@ -40,5 +40,5 @@ dsh-harness/
 - **正规安装已落地**: web/desktop profile 均以 pnpm `link:` 协议安装三个 npm 包
   形态插件(重装 profile 后 `pnpm install` 即可恢复链接)。
 - 校验: `bash scripts/verify-install.sh`。
-- `dsh-adapt` / `dsh-qwen-gw` 为 file 插件(经 `cordis.patch.yml` 的
+- `dsh-hindsight-adapt` / `dsh-qwen-gw` 为 file 插件(经 `cordis.patch.yml` 的
   `file://` 引用),源码同样在本仓库 `plugins/` 下。

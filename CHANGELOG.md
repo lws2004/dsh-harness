@@ -16,5 +16,5 @@
 - **正规安装方式落地** — web / desktop profile 均以 pnpm `link:` 协议
   安装 npm 包形态插件(替代手工拷贝副本);新增 `scripts/verify-install.sh`
   完整性校验(21/21 通过)。
-- 其余 4 个插件(`dsh-language-zh` / `dsh-agent-policy` / `dsh-adapt` /
+- 其余 4 个插件(`dsh-language-zh` / `dsh-agent-policy` / `dsh-hindsight-adapt` /
   `dsh-qwen-gw`)源码已入仓;全部插件统一 `v0.1.0` 起始(0.x 语义版本,未稳定 API 前不升 1.0)。

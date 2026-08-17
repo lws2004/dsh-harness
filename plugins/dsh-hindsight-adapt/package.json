@@ -1,5 +1,5 @@
 {
-  "name": "dsh-adapt",
+  "name": "dsh-hindsight-adapt",
   "description": "DSH Hindsight 薄适配层:经 cordis file:// 加载,转调 hs-memory 提供记忆工具与会话钩子",
   "version": "0.1.0",
   "private": true,
