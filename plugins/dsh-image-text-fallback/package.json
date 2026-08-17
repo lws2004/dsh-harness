@@ -1,0 +1,29 @@
+{
+  "name": "dsh-image-text-fallback",
+  "description": "图片自动降级:纯文本路由(如 deepseek-official)遇到 image 块时自动调本地 ocr.py 转成文本,视觉路由(支持 image 输入的模型)原样放行",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib"
+  ],
+  "license": "UNLICENSED",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "^3.18.1"
+  },
+  "scripts": {
+    "test": "node --test \"test/*.test.js\""
+  }
+}
