@@ -39,8 +39,8 @@ export const inject = ["llm", "attachments"];
 
 export const Config = z.object({
   enabled: z.boolean().default(true),
-  ocrScript: z.string().default("~/.ocr-tool/ocr.py"),
-  venvPython: z.string().default("~/.ocr-tool/venv/bin/python"),
+  ocrScript: z.string().default(process.env.HOME + "/.ocr-tool/ocr.py"),
+  venvPython: z.string().default(process.env.HOME + "/.ocr-tool/venv/bin/python"),
   timeoutMs: z.number().min(1000).default(120000),
   maxConcurrent: z.number().min(1).max(8).default(2),
   /** 内容哈希缓存上限(进程内)。同一图片字节只 OCR 一次;只缓存成功结果 */
