@@ -1,0 +1,8 @@
+{
+  "name": "dsh-agent-policy",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "lib/index.js",
+  "description": "全局 Agent 行为策略:向所有会话注入「纯文本模型能力边界(识图走 ocr.py,不用 read_image)」与「指令冲突时技能摘要优先」的独立 systemPrompt section,不受 preset persona 遮蔽。"
+}
