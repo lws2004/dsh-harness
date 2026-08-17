@@ -1,0 +1,16 @@
+{
+  "name": "dsh-harness-plugins",
+  "description": "DeepSeek Harness 本地自研插件统一管理仓库",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "release": "bash scripts/release.sh",
+    "test": "npm run test --workspaces --if-present",
+    "pack:all": "npm run pack:all --workspaces --if-present",
+    "verify": "bash scripts/verify-install.sh"
+  },
+  "pnpm": {
+    "overrides": {}
+  }
+}
