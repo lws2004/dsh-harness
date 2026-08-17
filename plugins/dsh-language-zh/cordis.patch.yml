@@ -1,0 +1,4 @@
+# dsh-language-zh: profile 将其列为 bundle 时应用的 layer
+- insert:
+    - id: language-zh
+      name: dsh-language-zh

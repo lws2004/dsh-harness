@@ -45,3 +45,8 @@ DSH 下次启动生效(插件在启动时加载)。
 `coding-agent::soft`(376 facts / 4 文档: 1 会话转录 + 2 correction + 1 笔记)
 是历史碎片库,已不再写入;如要迁移其知识文档到 `coding-agent::global`,见
 汇报中的迁移选项。
+## 官方规范参考
+
+- [打包与安装插件](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/user/develop/basic/publish.md) — Bundle/Profile 机制
+- [插件配置](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/user/develop/basic/config.md) — Config schema 定义
+- [Cordis 入门](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/cordis-primer.zh.md) — 核心概念与事件模式

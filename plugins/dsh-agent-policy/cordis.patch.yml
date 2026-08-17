@@ -1,0 +1,4 @@
+# dsh-agent-policy: profile 将其列为 bundle 时应用的 layer
+- insert:
+    - id: agent-policy
+      name: dsh-agent-policy

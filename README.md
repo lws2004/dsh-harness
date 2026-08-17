@@ -42,3 +42,25 @@ dsh-harness/
 - 校验: `bash scripts/verify-install.sh`。
 - `dsh-hindsight-adapt` / `dsh-qwen-gw` 为 file 插件(经 `cordis.patch.yml` 的
   `file://` 引用),源码同样在本仓库 `plugins/` 下。
+## 官方规范参考
+
+本仓库的插件组织与发布方式对齐 [DeepSeek Harness 官方仓库](https://github.com/deepseek-ai/deepseek-harness)。以下为核心参考文档:
+
+| 文档 | 说明 | 链接 |
+|---|---|---|
+| **打包与安装插件** | Bundle/Profile 机制、`dsh plugin add`、层顺序 | [publish.md](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/user/develop/basic/publish.md) |
+| **插件配置** | Config schema、Schemastery、HMR | [config.md](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/user/develop/basic/config.md) |
+| **Cordis 入门** | 五个核心概念、分发模式、Waterfall | [cordis-primer.zh.md](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/cordis-primer.zh.md) |
+| **Cordis 教程** | 入门→配置→组合→进入 Harness | [cordis-tutorial/](https://github.com/deepseek-ai/deepseek-harness/tree/master/docs/cordis-tutorial) |
+| **扩展插件形态** | Tool/Hook/UI/Protocol 示例 | [extension-cookbook.md](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/cookbook/extension-cookbook.md) |
+| **开发指南** | TypeScript 布局、构建、测试、CI | [development.md](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/development.md) |
+| **架构文档** | 整体架构、模块图、发布流程 | [architecture.md](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/architecture.md) |
+
+### 核心约定速查
+
+- **Bundle 组合包**: `package.json` 声明 `"dsh": {"bundle": {"patch": "./cordis.patch.yml"}}`, 自带 `cordis.patch.yml` 按包名引用自身。
+- **Profile manifest**: `dsh.profile.bundles` 按顺序列出组合包, cordis.layer 逐层合成。
+- **安装命令**: `dsh plugin --profile <name> add <path>` — 自动维护 dependencies + bundles。
+- **层顺序**: bundles(按顺序) → profile cordis.patch.yml → home cordis.patch.yml → `--patch` overlays。
+- **版本语义**: `0.x.y` 表示未稳定 API, `1.0.0` 标记稳定发布。
+

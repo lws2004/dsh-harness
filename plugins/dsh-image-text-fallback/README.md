@@ -64,3 +64,9 @@ npm test       # 运行测试(node --test)
 
 - 改插件后需**重启对应环境**(`dsh web` 或重启 Oh-DSH Desktop)才生效。
 - 视觉路由(inputModalities 含 "image")不受本插件影响。
+
+## 官方规范参考
+
+- [打包与安装插件](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/user/develop/basic/publish.md) — Bundle/Profile 机制
+- [插件配置](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/user/develop/basic/config.md) — Config schema 定义
+- [Cordis 入门](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/cordis-primer.zh.md) — 核心概念与事件模式
