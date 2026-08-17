@@ -39,18 +39,16 @@ export const inject = ["llm", "attachments"];
 
 export const Config = z.object({
   enabled: z.boolean().default(true),
-  ocrScript: z.string().default(process.env.HOME + "/.ocr-tool/ocr.py"),
-  venvPython: z.string().default(process.env.HOME + "/.ocr-tool/venv/bin/python"),
+  
+  // 模型配置(从 DSH 读取)
+  ocrProvider: z.string().default(""),      // OCR provider 名称(空=自动检测)
+  describeProvider: z.string().default(""), // 图像描述 provider(空=自动检测)
+  
+  // 高级配置(一般不需要)
+  modelDir: z.string().default(""),        // 模型目录(空=默认路径)
   timeoutMs: z.number().min(1000).default(120000),
   maxConcurrent: z.number().min(1).max(8).default(2),
-  /** 内容哈希缓存上限(进程内)。同一图片字节只 OCR 一次;只缓存成功结果 */
   cacheCap: z.number().min(1).max(1000).default(200),
-  /**
-   * 显式强制纯文本的 provider 名单(默认空 = 自动识别,无需维护)。
-   * v3 起按模型的 inputModalities 自动判断:不含 "image"([text] 或未知)
-   * 一律视为纯文本并降级;含 "image" 的视觉模型原样放行。本字段仅作为
-   * 兼容旧配置的补充强制项,一般不需要设置。
-   */
   textOnlyProviders: z.array(z.string()).default([]),
 });
 
@@ -61,7 +59,65 @@ const MEDIA_EXT = {
   "image/gif": "gif",
 };
 
+
+/**
+ * 自动检测 DSH 配置的 provider
+ * @param ctx - Cordis 上下文
+ * @param type - 'ocr' 或 'describe'
+ * @returns provider 名称或 null
+ */
+function detectProvider(ctx, type) {
+  // 从 ctx.llm 获取已配置的 providers
+  if (!ctx.llm || !ctx.llm.providers) return null;
+  
+  const providers = ctx.llm.providers;
+  
+  // 查找匹配的 provider
+  for (const [name, config] of Object.entries(providers)) {
+    const models = config.models || [];
+    
+    // OCR 模型特征
+    if (type === 'ocr') {
+      const hasOcrModel = models.some(m => 
+        m.toLowerCase().includes('ocr') || 
+        m.toLowerCase().includes('paddleocr')
+      );
+      if (hasOcrModel) return name;
+    }
+    
+    // 描述模型特征
+    if (type === 'describe') {
+      const hasDescModel = models.some(m => 
+        m.toLowerCase().includes('vl') || 
+        m.toLowerCase().includes('vision') ||
+        m.toLowerCase().includes('minicpm')
+      );
+      if (hasDescModel) return name;
+    }
+  }
+  
+  return null;
+}
+
 export function apply(ctx, config) {
+  // 自动检测 DSH 配置的模型
+  const ocrProvider = config.ocrProvider || detectProvider(ctx, 'ocr');
+  const describeProvider = config.describeProvider || detectProvider(ctx, 'describe');
+  
+  // 提示用户配置(如果未检测到)
+  if (!ocrProvider) {
+    ctx.logger('image-text-fallback').warn(
+      '未检测到 OCR provider,将使用本地 ocr.py。' +
+      '如需使用远程 OCR 服务,请在 DSH 中配置 provider。'
+    );
+  }
+  if (!describeProvider) {
+    ctx.logger('image-text-fallback').info(
+      '未检测到图像描述 provider,将禁用图像描述功能。' +
+      '如需启用,请在 DSH 中配置 provider。'
+    );
+  }
+
   if (!config.enabled) return;
   const llm = ctx.llm;
   const logger = ctx.logger("image-text-fallback");
@@ -75,8 +131,8 @@ export function apply(ctx, config) {
   /** 执行一次 ocr.py,返回解析后的 JSON 信封;任何异常向外抛。 */
   async function runOcr(file, signal, extraArgs) {
     const { stdout } = await execFileAsync(
-      config.venvPython,
-      [config.ocrScript, file, "--mode", "json", ...extraArgs],
+      process.env.HOME + "/.ocr-tool/venv/bin/python",
+      [process.env.HOME + "/.ocr-tool/ocr.py", file, "--mode", "json", ...extraArgs],
       { timeout: config.timeoutMs, maxBuffer: 64 * 1024 * 1024, signal },
     );
     // ocr.py --mode json 是 indent=2 的多行 JSON,必须整段解析,不能只取最后一行
