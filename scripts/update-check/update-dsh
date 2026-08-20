@@ -1,0 +1,217 @@
+#!/bin/bash
+# update-dsh — DSH 一键更新命令
+#
+# 用法:
+#   update-dsh            检查 + 确认后更新到 npm 最新稳定版(latest)
+#   update-dsh --check    仅检查是否有新版本(不更新)
+#   update-dsh --force    跳过确认,直接更新到最新稳定版
+#   update-dsh --next     更新到 next 预发布版(比 latest 新时)
+#   update-dsh --rollback 回滚到更新前的版本(bun add 旧版)
+#
+# 防降级:本地版本若已不低于目标版本(如已用 next 预发布版),
+#         会提示"无需更新"而不会盲目重装降级到 latest。
+#
+# 本文件是源码,由 install.sh 部署到 ~/.local/bin/update-dsh
+# 修改后需重新运行 install.sh 才会生效
+
+PKG=@deepseek-ai/dsh
+BUN=/Users/lanws/.bun/bin/bun
+NODE=/Users/lanws/.local/bin/node
+NPM=/Users/lanws/.local/bin/npm
+BASE="$HOME/.dsh/update-check"
+LOG="$BASE/logs/update-check.log"
+FLAG="$BASE/update-available"
+PREV="$BASE/previous-version"
+STATE="$BASE/update-state"
+CHECK="$BASE/check-update.sh"
+PKG_JSON="$HOME/.bun/install/global/node_modules/$PKG/package.json"
+# npm cache 绕过:~/.npm/_cacache 可能有 root-owned 文件(老版本 npm bug)导致 EPERM
+NPM_CACHE="/tmp/dsh-npm-cache-$(id -u)"
+
+GREEN='\033[32m'; YELLOW='\033[33m'; RED='\033[31m'; CYAN='\033[36m'; RESET='\033[0m'
+
+local_version() {
+  local v=""
+  # 方法1: node require
+  if [ -f "$PKG_JSON" ]; then
+    v=$("$NODE" -p "require('$PKG_JSON').version" 2>/dev/null)
+  fi
+  # 方法2: bun pm ls -g fallback
+  if [ -z "$v" ] || [ "$v" = "undefined" ]; then
+    v=$("$BUN" pm ls -g 2>/dev/null | grep "$PKG@" | sed 's/.*@//;s/ .*//' | head -1)
+  fi
+  echo "${v:-unknown}"
+}
+
+# semver(含 rc) 转可比较数值,与 check-update.sh 保持一致
+ver_num() {
+  local v="${1#v}"  # 去掉可能的 v 前缀
+  local base="${v%%-*}"     # rc 之前的部分
+  local rc=""
+  if [[ "$v" == *-* ]]; then
+    rc="${v#*-}"             # rc.7
+  fi
+  local major minor patch
+  IFS='.' read -r major minor patch <<< "$base"
+  patch="${patch:-0}"
+  local rc_num=0
+  if [[ "$rc" =~ ^rc\.([0-9]+)$ ]]; then
+    rc_num="${BASH_REMATCH[1]}"
+  elif [[ "$rc" == "rc" ]]; then
+    rc_num=0
+  fi
+  printf '%d%06d%06d%04d' "$major" "$minor" "$patch" "$rc_num"
+}
+
+latest_version() { "$NPM" view "$PKG" dist-tags.latest --cache "$NPM_CACHE" 2>/dev/null; }
+next_version()   { "$NPM" view "$PKG" dist-tags.next --cache "$NPM_CACHE" 2>/dev/null; }
+
+banner() { echo -e "${CYAN}═══ DSH 更新助手 ═══${RESET}"; }
+
+# ---------- 显示当前状态 ----------
+show_status() {
+  banner
+  echo -e "本地版本: ${GREEN}$(local_version)${RESET}"
+  if [ -f "$FLAG" ]; then
+    echo
+    cat "$FLAG"
+    echo
+    echo -e "${YELLOW}▶ 执行 update-dsh 即可一键更新${RESET}"
+  elif [ -f "$STATE" ]; then
+    . "$STATE"
+    if [ "${AHEAD:-0}" = "1" ]; then
+      echo -e "${GREEN}✓ 最新版本: $LOCAL${RESET}(领先 npm 最新版 $LATEST)"
+      if [ "${NEXT_AVAILABLE:-0}" = "1" ]; then
+        echo -e "${YELLOW}⭐ 另有 next 预发布 $NEXT 比本地更新:update-dsh --next${RESET}"
+      fi
+    elif [ "${NEXT_AVAILABLE:-0}" = "1" ]; then
+      echo -e "${GREEN}✓ 已是最新稳定版($LOCAL),无需更新${RESET}"
+      echo -e "${YELLOW}⭐ 有 next 预发布版 $NEXT 可用:update-dsh --next 一键更新${RESET}"
+    else
+      echo -e "${GREEN}✓ 已是最新版本($LOCAL),无需更新${RESET}"
+    fi
+  else
+    echo -e "${GREEN}✓ 已是最新版本,无需更新${RESET}"
+  fi
+}
+
+# ---------- 检查(静默刷新标志) ----------
+check_only() {
+  bash "$CHECK"
+  show_status
+}
+
+# ---------- 执行更新 ----------
+# $1 = 目标通道:latest(默认,稳定版) | next(预发布版)
+# 防降级:本地版本已不低于目标版本时直接提示,不执行安装
+do_update() {
+  local target="${1:-latest}"
+  local LOCAL_VER LATEST_VER NEXT_VER
+  banner
+  LOCAL_VER=$(local_version)
+  if [ "$LOCAL_VER" = "unknown" ]; then
+    echo -e "${RED}✗ 本地版本检测失败,请手动确认后重试${RESET}"
+    exit 1
+  fi
+  if [ "$target" = "next" ]; then
+    NEXT_VER=$(next_version)
+    if [ -z "$NEXT_VER" ]; then
+      echo -e "${RED}✗ 获取 next 预发布版本失败,请检查网络${RESET}"
+      exit 1
+    fi
+    if [ "$(ver_num "$LOCAL_VER")" -ge "$(ver_num "$NEXT_VER")" ] 2>/dev/null; then
+      echo -e "${GREEN}✓ 已是最新预发布版($LOCAL_VER),无需更新${RESET}"
+      return 0
+    fi
+    echo -e "正在更新到 next 预发布版 ${YELLOW}$NEXT_VER${RESET} ..."
+    if ! "$BUN" add -g "$PKG@next"; then
+      echo -e "${RED}✗ 更新失败,请检查网络或 bun 状态${RESET}"
+      exit 1
+    fi
+  else
+    LATEST_VER=$(latest_version)
+    if [ -z "$LATEST_VER" ]; then
+      echo -e "${RED}✗ 获取最新版本失败,请检查网络${RESET}"
+      exit 1
+    fi
+    if [ "$(ver_num "$LOCAL_VER")" -ge "$(ver_num "$LATEST_VER")" ] 2>/dev/null; then
+      if [ "$(ver_num "$LOCAL_VER")" -gt "$(ver_num "$LATEST_VER")" ] 2>/dev/null; then
+        echo -e "${GREEN}✓ 本地版本 $LOCAL_VER 已领先 npm 最新版 $LATEST_VER,无需更新${RESET}"
+        echo -e "${YELLOW}  (如要追 next 预发布版:update-dsh --next)${RESET}"
+      else
+        echo -e "${GREEN}✓ 已是最新稳定版($LOCAL_VER),无需更新${RESET}"
+        echo -e "${YELLOW}  (如要追 next 预发布版:update-dsh --next)${RESET}"
+      fi
+      return 0
+    fi
+    echo -e "正在更新到最新稳定版 ${YELLOW}$LATEST_VER${RESET} ..."
+    if ! "$BUN" update -g "$PKG"; then
+      echo -e "${RED}✗ 更新失败,请检查网络或 bun 状态${RESET}"
+      exit 1
+    fi
+  fi
+  # 更新后立即重新检测,刷新标志/状态
+  bash "$CHECK" >/dev/null 2>&1
+  echo
+  echo -e "${GREEN}✓ 更新完成!最新版本: $(local_version)${RESET}"
+  echo -e "${YELLOW}⚠ 请重启 dsh 服务使新版本生效${RESET}"
+  echo "   (停止当前 dsh,重新运行即可)"
+}
+
+# ---------- 回滚 ----------
+do_rollback() {
+  banner
+  if [ ! -f "$PREV" ]; then
+    echo -e "${RED}✗ 未找到更新前的版本记录,无法回滚${RESET}"
+    exit 1
+  fi
+  OLD=$(cat "$PREV")
+  echo -e "正在回滚到 ${YELLOW}$OLD${RESET} ..."
+  "$BUN" add -g "$PKG@$OLD"
+  if [ $? -ne 0 ]; then
+    echo -e "${RED}✗ 回滚失败${RESET}"
+    exit 1
+  fi
+  bash "$CHECK" >/dev/null 2>&1
+  echo
+  echo -e "${GREEN}✓ 已回滚到 $OLD,请重启 dsh 生效${RESET}"
+}
+
+# ---------- 主流程 ----------
+case "$1" in
+  --check)
+    check_only
+    ;;
+  --force)
+    do_update latest
+    ;;
+  --next)
+    do_update next
+    ;;
+  --rollback)
+    do_rollback
+    ;;
+  "")
+    bash "$CHECK" >/dev/null 2>&1
+    if [ -f "$FLAG" ]; then
+      banner
+      cat "$FLAG"
+      echo
+      read -r -p "确认更新到最新稳定版? [y/N] " ans
+      case "$ans" in
+        y|Y|yes|YES) do_update latest ;;
+        *) echo -e "${YELLOW}已取消(可稍后执行 update-dsh 再次更新)${RESET}"; exit 0 ;;
+      esac
+    else
+      show_status
+    fi
+    ;;
+  *)
+    echo -e "用法: update-dsh [--check | --force | --next | --rollback]"
+    echo "   (无参数) 检查并确认后更新到最新稳定版(latest)"
+    echo "  --check    仅检查"
+    echo "  --force    跳过确认,直接更新到最新稳定版"
+    echo "  --next     更新到 next 预发布版(比 latest 新时)"
+    echo "  --rollback 回滚到上一个版本"
+    ;;
+esac
