@@ -15,6 +15,21 @@
     "cordis.patch.yml"
   ],
   "license": "UNLICENSED",
+  "author": "lws2004",
+  "homepage": "https://github.com/lws2004/dsh-harness/tree/master/plugins/dsh-agent-policy#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lws2004/dsh-harness.git",
+    "directory": "plugins/dsh-agent-policy"
+  },
+  "keywords": [
+    "deepseek",
+    "dsh",
+    "deepseek-harness",
+    "cordis",
+    "plugin",
+    "agent-policy"
+  ],
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"

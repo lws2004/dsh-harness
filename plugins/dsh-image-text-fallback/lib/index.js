@@ -22,10 +22,19 @@
  * - 递归处理 tool-result 内嵌图片:工具返回的截图也能被转译,不止顶层消息块。
  * - 结构化日志:每张图记录 engine/tier/耗时/置信度与失败原因,便于排障。
  * - 可操作的失败占位:区分"图中无可转录文字"与"本地视觉服务异常",给出指引。
+ *
+ * v4:多引擎路由(engineRoute)。
+ * - auto(默认):本地 ocr.py 优先;转录失败/置信非 high/交叉复核缺失/转录
+ *   子任务失败/交叉复核缺失)时,自动升级 modlens analyze(云端视觉证据)
+ *   并注入【图片解析】,无需用户切换任何模型选项。
+ * - local:仅本地;modlens:仅云端。
+ * - 引擎失败冷却(engineCooldownMs):某引擎整体不可用时冷却期内不反复尝试。
+ * - modlens CLI 自动探测 profile 安装点,或显式配置 modlensCli。
  */
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createHash, randomUUID } from "node:crypto";
+import { existsSync, readdirSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -50,6 +59,25 @@ export const Config = z.object({
   maxConcurrent: z.number().min(1).max(8).default(2),
   cacheCap: z.number().min(1).max(1000).default(200),
   textOnlyProviders: z.array(z.string()).default([]),
+
+  // ---- v4 多引擎路由 ----
+  // 引擎路由策略:
+  //   auto    = 本地 OCR 优先;失败/低置信/复核缺失时自动升级 modlens(默认)
+  //   local   = 只用本地 OCR,不调用 modlens
+  //   modlens = 全部交给 modlens(注意:不再有本地免费通道)
+  engineRoute: z.union([z.const("auto"), z.const("local"), z.const("modlens")]).default("auto"),
+  // modlens CLI 入口(空=自动探测 ~/.dsh/profiles/*/node_modules/@liustack/modlens)
+  modlensCli: z.string().default(""),
+  // 显式指定 modlens 视觉 provider(空=用 ~/.modlens/config.json 的 selected provider)
+  modlensProvider: z.string().default(""),
+  // modlens 单次超时(ms)
+  modlensTimeoutMs: z.number().min(1000).default(180000),
+  // 引擎失败冷却(ms):某个引擎整体不可用时,冷却期内不再反复尝试
+  engineCooldownMs: z.number().min(0).default(60000),
+
+  // 本地 OCR 可执行文件(空=默认 ~/.ocr-tool)
+  ocrScript: z.string().default(""),
+  venvPython: z.string().default(""),
 });
 
 const MEDIA_EXT = {
@@ -126,17 +154,193 @@ export function apply(ctx, config) {
   const cache = new Map();
   /** attachmentId -> sha256 key:同一附件重复出现在消息里时,免去重复 readImage 算哈希 */
   const idToKey = new Map();
-  const stats = { total: 0, hits: 0, failures: 0 };
+  const stats = { total: 0, hits: 0, failures: 0, modlens: 0 };
 
   /** 执行一次 ocr.py,返回解析后的 JSON 信封;任何异常向外抛。 */
   async function runOcr(file, signal, extraArgs) {
+    const py = config.venvPython || process.env.HOME + "/.ocr-tool/venv/bin/python";
+    const script = config.ocrScript || process.env.HOME + "/.ocr-tool/ocr.py";
     const { stdout } = await execFileAsync(
-      process.env.HOME + "/.ocr-tool/venv/bin/python",
-      [process.env.HOME + "/.ocr-tool/ocr.py", file, "--mode", "json", ...extraArgs],
+      py,
+      [script, file, "--mode", "json", ...extraArgs],
       { timeout: config.timeoutMs, maxBuffer: 64 * 1024 * 1024, signal },
     );
     // ocr.py --mode json 是 indent=2 的多行 JSON,必须整段解析,不能只取最后一行
     return JSON.parse(stdout.trim());
+  }
+
+  // ---- v4 多引擎路由:本地 OCR 优先,失败/低置信升级 modlens ----
+
+  /** 引擎级失败冷却:该引擎整体不可用时,冷却期内不再反复尝试(modlens 的 cooldown 设计) */
+  const engineCooldown = new Map();
+  function markCooldown(engine, error) {
+    engineCooldown.set(engine, {
+      until: Date.now() + config.engineCooldownMs,
+      error,
+    });
+    logger.warn(`引擎降级: ${engine} 进入冷却 ${config.engineCooldownMs}ms (${error})`);
+  }
+  function inCooldown(engine) {
+    const c = engineCooldown.get(engine);
+    if (!c) return null;
+    if (Date.now() >= c.until) {
+      engineCooldown.delete(engine);
+      return null;
+    }
+    return c;
+  }
+
+  /** modlens CLI 探测(进程内只探测一次):显式配置 > 本机各 profile 安装点 */
+  let modlensCliCached = null;
+  let modlensCliProbed = false;
+  function findModlensCli() {
+    if (modlensCliProbed) return modlensCliCached;
+    modlensCliProbed = true;
+    if (config.modlensCli) {
+      modlensCliCached = config.modlensCli;
+      return modlensCliCached;
+    }
+    const home = process.env.HOME || "";
+    const profilesDir = join(home, ".dsh", "profiles");
+    const candidates = [];
+    try {
+      for (const name of readdirSync(profilesDir)) {
+        // 扁平布局
+        candidates.push(
+          join(profilesDir, name, "node_modules", "@liustack", "modlens", "dist", "main.js"),
+        );
+        // pnpm 严格布局
+        const pnpmDir = join(profilesDir, name, "node_modules", ".pnpm");
+        if (existsSync(pnpmDir)) {
+          for (const dir of readdirSync(pnpmDir)) {
+            if (dir.startsWith("@liustack+modlens@")) {
+              candidates.push(
+                join(pnpmDir, dir, "node_modules", "@liustack", "modlens", "dist", "main.js"),
+              );
+            }
+          }
+        }
+      }
+    } catch { /* profiles 目录不可读 → 放弃自动探测 */ }
+    for (const c of candidates) {
+      if (existsSync(c)) {
+        modlensCliCached = c;
+        return c;
+      }
+    }
+    modlensCliCached = null;
+    return null;
+  }
+
+  /** 执行一次 modlens analyze,把结构化证据压成注入文本 */
+  async function runModlensAttempt(file, signal) {
+    const cli = findModlensCli();
+    if (!cli) {
+      return { ok: false, error: "未找到 modlens CLI(安装 @liustack/modlens 或配置 modlensCli)", engine: "modlens-cli" };
+    }
+    const args = ["analyze", "-i", file];
+    if (config.modlensProvider) args.push("-p", config.modlensProvider);
+    let stdout;
+    try {
+      ({ stdout } = await execFileAsync(
+        process.execPath,
+        [cli, ...args],
+        { timeout: config.modlensTimeoutMs, maxBuffer: 64 * 1024 * 1024, signal },
+      ));
+    } catch (error) {
+      return { ok: false, error: String(error?.message ?? error), engine: "modlens" };
+    }
+    let envelope;
+    try {
+      envelope = JSON.parse(stdout.trim());
+    } catch {
+      return { ok: false, error: "modlens 输出不是合法 JSON", engine: "modlens" };
+    }
+    if (!envelope?.result) {
+      return { ok: false, error: envelope?.error ?? "modlens 返回结构异常", engine: "modlens" };
+    }
+    stats.modlens += 1;
+    return {
+      ok: true,
+      text: buildEvidenceText(envelope.result),
+      engine: "modlens",
+      provider: envelope.provider ?? null,
+      elapsed_ms: envelope.meta?.elapsed_ms ?? null,
+      confidence: "high",
+      evidence: true,
+    };
+  }
+
+  /** 本地转录单次尝试(含 balanced→accurate 自愈),返回统一 entry 形状;
+   *  只做 OCR 转录(RapidOCR/PaddleOCR-VL),不再请求 --both 的画面描述——
+   *  MiniCPM 描述已从主链路退场,"看懂"类任务统一交给 modlens 升级通道。 */
+  async function localAttempt(file, signal) {
+    let out;
+    try {
+      out = await runOcr(file, signal, []);
+    } catch (error) {
+      return { ok: false, error: String(error?.message ?? error), engine: "local-exception" };
+    }
+    let attempt = "balanced";
+    if (!(out && out.ok)) {
+      try {
+        out = await runOcr(file, signal, ["--profile", "accurate"]);
+      } catch (error) {
+        return { ok: false, error: String(error?.message ?? error), engine: "local-exception" };
+      }
+      attempt = "accurate";
+    }
+    if (out && out.ok) {
+      return {
+        ok: true,
+        text: String(out.result ?? ""),
+        engine: out.metadata?.engine ?? out.tool_used ?? "?",
+        tier: out.metadata?.used_tier,
+        elapsed_ms: out.metadata?.elapsed_ms,
+        confidence: out.confidence,
+        // ocr.py 交叉验证:要求 VLM 复核但 VLM 不可用 → 回退快速通道结果
+        crossCheckFailed: out.metadata?.cross_check_failed === true,
+        crossCheckError: out.metadata?.cross_check_error,
+      };
+    }
+    const err = out?.metadata?.error ?? out?.error ?? "unknown";
+    return {
+      ok: false,
+      error: err,
+      engine: out?.metadata?.engine ?? "none",
+      attempt,
+    };
+  }
+
+  /** 统一收尾:成功进缓存并记日志;失败只记失败数,不缓存(可重试) */
+  function finishEntry(entry, key) {
+    if (entry.ok) {
+      if (cache.size >= config.cacheCap) cache.delete(cache.keys().next().value);
+      cache.set(key, entry);
+      logger.info(
+        `转译 ok: engine=${entry.engine} ${entry.elapsed_ms ?? "?"}ms ` +
+          `conf=${entry.confidence ?? "?"} hash=${key.slice(0, 12)}`,
+      );
+    } else {
+      stats.failures += 1;
+      logger.warn(`转译失败: engine=${entry.engine} (${entry.error})`);
+    }
+    return entry;
+  }
+
+  /** 根据引擎路由决策,判断是否要把本地结果升级给 modlens */
+  function shouldUpgrade(local, route, modlensCooled) {
+    if (route === "local") return false;
+    if (route === "modlens") return !modlensCooled;
+    // auto:本地转录成功、置信 high、复核未丢失 → 直接用本地,不烧配额
+    if (
+      local.ok &&
+      local.confidence === "high" &&
+      !local.crossCheckFailed
+    ) {
+      return false;
+    }
+    return !modlensCooled;
   }
 
   /**
@@ -166,63 +370,55 @@ export function apply(ctx, config) {
     const file = join(dir, `img-${randomUUID()}.${ext}`);
     await writeFile(file, stored.data);
     try {
-      // 双通道:--both = OCR 转录 + MiniCPM 图像描述(覆盖"提取文字"与"理解画面"两种用途)
-      // 第一次:默认档(balanced 自动路由)
-      let out = await runOcr(file, signal, ["--both"]);
-      let attempt = "balanced";
-      // 自愈:默认档失败时,升级 accurate(强制 PaddleOCR-VL)重试一次(仍带 --both)
-      if (!(out && out.ok)) {
-        out = await runOcr(file, signal, ["--both", "--profile", "accurate"]);
-        attempt = "accurate";
+      // v4 引擎链:本地优先;按 engineRoute 与本地结果质量决定是否升级 modlens
+      const local = await localAttempt(file, signal);
+      const route = config.engineRoute;
+      const cooled = inCooldown("modlens");
+      if (!shouldUpgrade(local, route, Boolean(cooled))) {
+        // 纯本地模式,或 modlens 冷却中:直接用本地结果(失败也走占位,不再额外尝试)
+        return finishEntry(local, key);
       }
-      if (out && out.ok) {
-        const entry = {
-          ok: true,
-          text: String(out.result ?? ""),
-          engine: out.metadata?.engine ?? out.tool_used ?? "?",
-          tier: out.metadata?.used_tier,
-          elapsed_ms: out.metadata?.elapsed_ms,
-          confidence: out.confidence,
-          // ocr.py 交叉验证:要求 VLM 复核但 VLM 不可用 → 回退快速通道结果
-          crossCheckFailed: out.metadata?.cross_check_failed === true,
-          crossCheckError: out.metadata?.cross_check_error,
-        };
-        if (cache.size >= config.cacheCap) cache.delete(cache.keys().next().value);
-        cache.set(key, entry);
-        logger.info(
-          `OCR ok: engine=${entry.engine} tier=${entry.tier ?? "?"} ` +
-            `${entry.elapsed_ms ?? "?"}ms conf=${entry.confidence ?? "?"} ` +
-            `attempt=${attempt} hash=${key.slice(0, 12)}`,
-        );
-        return entry;
-      }
-      // 失败原因在 metadata.error(信封顶层只有 ok/result/confidence)
-      const err = out?.metadata?.error ?? out?.error ?? "unknown";
-      stats.failures += 1;
-      logger.warn(
-        `OCR failed (attempt=${attempt}, engine=${out?.metadata?.engine ?? "none"}): ${err}`,
-      );
-      return { ok: false, error: err, engine: out?.metadata?.engine ?? "none" };
+      // 升级尝试 modlens;失败则冷却该引擎,冷却期内退回本地结果
+      const remote = await runModlensAttempt(file, signal);
+      if (remote.ok) return finishEntry(remote, key);
+      markCooldown("modlens", remote.error);
+      return finishEntry(route === "modlens" ? remote : local, key);
     } catch (error) {
       stats.failures += 1;
-      logger.warn(`OCR exception: ${String(error?.message ?? error)}`);
+      logger.warn(`转译异常: ${String(error?.message ?? error)}`);
       return { ok: false, error: String(error?.message ?? error), engine: "exception" };
     } finally {
       await rm(dir, { recursive: true, force: true }).catch(() => {});
     }
   }
 
-  /** 失败占位文本:区分"无可转录文字"与"本地服务异常",给出可操作指引 */
+  /** 失败占位文本:区分"无可转录文字"与"视觉服务异常",给出可操作指引 */
   function failurePlaceholder(r) {
     const err = r?.error ?? "unknown";
     const text = String(err);
     if (r?.engine === "none" && /no text detected/i.test(text)) {
       return "(OCR 未检测到文字:图片可能没有可转录文本,可直接让模型描述画面内容)";
     }
+    if (r?.engine === "modlens-cli") {
+      return `(本地 OCR 失败且未找到 modlens CLI: 安装 @liustack/modlens 或配置 modlensCli 启用云端升级)`;
+    }
     if (/omlx|tier2|minicpm|vlm/i.test(text) && /fail|error|refused|timeout|connect/i.test(text)) {
       return `(本地视觉服务异常: ${err} — 可运行 ~/.ocr-tool/ocr.py --check 排查)`;
     }
-    return `(OCR 失败: ${err})`;
+    return `(图片解析失败: ${err})`;
+  }
+
+  /** 注入文本:modlens 证据与本地 OCR 结果用不同标签,便于模型理解证据来源 */
+  function buildInjected(r) {
+    let label;
+    if (r.engine === "modlens") {
+      label = "【图片解析】(云端视觉证据,可据此回答)";
+    } else if (r.crossCheckFailed) {
+      label = "【图片内容】(⚠ 本地 VLM 复核不可用,以下为 OCR 快速通道结果,个别字符可能不准确)";
+    } else {
+      label = "【图片内容】";
+    }
+    return `${label}\n${r.text}`;
   }
 
   /** 递归收集 content 中的 image 块(含 tool-result 内嵌),用于统计与去重 */
@@ -294,18 +490,11 @@ export function apply(ctx, config) {
           try {
             stats.total += 1;
             const r = await transcribe(ref, options.signal);
-            textByAttachment.set(
-              id,
-              r.ok
-                ? r.crossCheckFailed
-                  ? `【图片内容】(⚠ 本地 VLM 复核不可用,以下为 OCR 快速通道结果,个别字符可能不准确)\n${r.text}`
-                  : `【图片内容】\n${r.text}`
-                : failurePlaceholder(r),
-            );
+            textByAttachment.set(id, r.ok ? buildInjected(r) : failurePlaceholder(r));
           } catch (error) {
             textByAttachment.set(
               id,
-              `(OCR 失败: ${String(error?.message ?? error)})`,
+              `(图片解析失败: ${String(error?.message ?? error)})`,
             );
           }
         }),
@@ -322,8 +511,9 @@ export function apply(ctx, config) {
     });
     logger.info(
       `provider=${options.provider} model=${options.model}: ` +
-        `${targets.length} 张图片降级为 OCR+描述文本 ` +
-        `(unique=${entries.length} total=${stats.total} hits=${stats.hits} failures=${stats.failures})`,
+        `${targets.length} 张图片降级为文本 ` +
+        `(unique=${entries.length} total=${stats.total} hits=${stats.hits} ` +
+        `failures=${stats.failures} modlens=${stats.modlens})`,
     );
     return { ...options, messages };
   }
@@ -381,7 +571,51 @@ export function apply(ctx, config) {
   }
 
   logger.info(
-    `已挂载:纯文本模型(自动识别)图片自动降级为 OCR 文本 ` +
-      `(cacheCap=${config.cacheCap}, maxConcurrent=${config.maxConcurrent}, timeoutMs=${config.timeoutMs})`,
+    `已挂载:纯文本模型(自动识别)图片自动降级为文本 ` +
+      `(route=${config.engineRoute}, cacheCap=${config.cacheCap}, ` +
+      `maxConcurrent=${config.maxConcurrent}, timeoutMs=${config.timeoutMs}, ` +
+      `modlens=${findModlensCli() ?? "未找到"})`,
   );
+}
+
+/**
+ * 把 modlens analyze 的结构化证据压成注入文本(模块级纯函数,便于单测)。
+ * 裁剪策略:摘要 + 完整转录 + 非文本布局区域(图表/表格等)+ 关系三元组,
+ * 避免与转录重复、控制 token 量的同时保留"可回答性"。
+ */
+export function buildEvidenceText(ev) {
+  const parts = [];
+  if (ev?.summary) parts.push(`【总结】${ev.summary}`);
+
+  const ft = ev?.ocr?.full_text;
+  if (ft) parts.push(`【完整转录】\n${ft}`);
+
+  const regions = Array.isArray(ev?.layout?.regions) ? ev.layout.regions : [];
+  const struct = regions.filter(
+    (r) =>
+      r && r.text &&
+      !["text", "paragraph", "title"].includes(String(r.type ?? "")),
+  );
+  if (struct.length > 0) {
+    parts.push(
+      "【布局要点】\n" +
+        struct
+          .slice(0, 12)
+          .map((r) => `[${r.reading_order ?? r.type ?? "?"}] ${String(r.text).trim()}`)
+          .join("\n"),
+    );
+  }
+
+  const rels = Array.isArray(ev?.semantics?.relations) ? ev.semantics.relations : [];
+  if (rels.length > 0) {
+    parts.push(
+      "【关系】" +
+        rels
+          .slice(0, 12)
+          .map((r) => `${r.subject ?? "?"} → ${r.predicate ?? "?"} → ${r.object ?? "?"}`)
+          .join("; "),
+    );
+  }
+
+  return parts.join("\n\n");
 }

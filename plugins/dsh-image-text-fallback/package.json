@@ -14,9 +14,27 @@
   },
   "files": [
     "lib",
+    "scripts/download-models.js",
     "cordis.patch.yml"
   ],
   "license": "UNLICENSED",
+  "author": "lws2004",
+  "homepage": "https://github.com/lws2004/dsh-harness/tree/master/plugins/dsh-image-text-fallback#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lws2004/dsh-harness.git",
+    "directory": "plugins/dsh-image-text-fallback"
+  },
+  "keywords": [
+    "deepseek",
+    "dsh",
+    "deepseek-harness",
+    "cordis",
+    "plugin",
+    "ocr",
+    "image",
+    "vision"
+  ],
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"

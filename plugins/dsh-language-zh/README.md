@@ -1,6 +1,18 @@
 # dsh-language-zh
 
-全局语言指令:为所有会话的 system prompt 注入「始终用中文思考和回复」的独立 section。
+[![npm version](https://img.shields.io/npm/v/dsh-language-zh?color=blue)](https://www.npmjs.com/package/dsh-language-zh)
+[![npm downloads](https://img.shields.io/npm/dm/dsh-language-zh)](https://www.npmjs.com/package/dsh-language-zh)
+
+全局语言指令:为所有会话的 system prompt 注入「始终用中文思考和回复,包括内部推理过程」的独立 section。
+
+## 安装
+
+```bash
+dsh plugin --profile web add dsh-language-zh
+```
+
+发布前可从本地路径安装:`dsh plugin --profile web add ./plugins/dsh-language-zh`;
+装完重启 `dsh web` 生效。
 
 ## 工作原理
 

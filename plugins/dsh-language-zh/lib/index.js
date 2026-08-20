@@ -16,7 +16,7 @@ export const inject = ["systemPrompt"];
 
 export const Config = z.object({
   text: z.string().default(
-    "始终使用中文进行思考和回复;除非用户明确要求使用其他语言。",
+    "始终使用中文进行思考和回复;包括内部推理过程也必须使用中文,除非用户明确要求使用其他语言。",
   ),
   order: z.number().default(1),
 });

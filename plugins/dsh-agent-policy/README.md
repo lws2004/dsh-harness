@@ -1,6 +1,18 @@
 # dsh-agent-policy
 
+[![npm version](https://img.shields.io/npm/v/dsh-agent-policy?color=blue)](https://www.npmjs.com/package/dsh-agent-policy)
+[![npm downloads](https://img.shields.io/npm/dm/dsh-agent-policy)](https://www.npmjs.com/package/dsh-agent-policy)
+
 全局 Agent 行为策略:向所有会话注入「纯文本模型能力边界」与「指令优先级」的独立 systemPrompt section。
+
+## 安装
+
+```bash
+dsh plugin --profile web add dsh-agent-policy
+```
+
+发布前可从本地路径安装:`dsh plugin --profile web add ./plugins/dsh-agent-policy`;
+装完重启 `dsh web` 生效。
 
 ## 工作原理
 
